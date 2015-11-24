@@ -2,7 +2,7 @@
 using System.Runtime.InteropServices;
 
 [assembly: AssemblyTitle("Azure Blob Filestorage provider for Telligent")]
-[assembly: AssemblyProduct("Tellgient extensions for Azure")]
+[assembly: AssemblyProduct("Telligent extensions for Azure")]
 [assembly: AssemblyCopyright("Copyright © Alex Crome 2015")]
 
 [assembly: ComVisible(false)]
