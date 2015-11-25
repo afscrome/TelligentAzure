@@ -9,12 +9,14 @@ using System;
 using System.Collections;
 using System.Net;
 using Telligent.Common.Diagnostics.Tracing;
+using System.Threading.Tasks;
+using System.Web;
 
 namespace AlexCrome.Telligent.Azure.Filestorage
 {
 
     //TODO: IPersistentUrlGeneratingFileStorageProvider, IEventEnabledCentralizedFileStorageProvider, IHttpAsyncRenderableCentralizedFileStorageProvider 
-    public class AzureBlobFilestorageProvider : ICentralizedFileStorageProvider
+    public class AzureBlobFilestorageProvider : ICentralizedFileStorageProvider, IPersistentUrlGeneratingFileStorageProvider
     {
         private CloudBlobContainer _container;
 
@@ -55,7 +57,17 @@ namespace AlexCrome.Telligent.Azure.Filestorage
         {
             using (new TracePoint($"[cfs] AddUpdate '{FileStoreKey}' '{path}' '{fileName}'"))
             {
+                //Work around for https://community.telligent.com/community/f/1964/t/1141418
+                if (contentStream.Position != 0)
+                {
+                    if (!contentStream.CanSeek)
+                        throw new NotSupportedException("Stream is not at beginning, and cannot be seeked to the beginning");
+
+                    contentStream.Seek(0, SeekOrigin.Begin);
+                }
+
                 var blob = GetBlob(path, fileName);
+                blob.Properties.ContentType = MimeMapping.GetMimeMapping(fileName);
 
                 blob.UploadFromStream(contentStream);
 
@@ -165,6 +177,12 @@ namespace AlexCrome.Telligent.Azure.Filestorage
         private string ConvertCfsPathToAzurePath(string cfsPath)
             => cfsPath?.Replace('.', '/').Trim('.');
 
+        public string GetPersistentDownloadUrl(ICentralizedFile file)
+        {
+            //TODO: Vary based on security
+            //TODO: Support CDN for public files
+            return file.GetDownloadUrl();
+        }
 
         private class NotFoundHandlingEnumerable : IEnumerable<IListBlobItem>
         {
