@@ -10,17 +10,17 @@ namespace AlexCrome.Telligent.Azure.Filestorage
     public class AzureBlobFileReference : ICentralizedFile
     {
         private readonly CloudBlob _blob;
+        private FileStoreData _fileStoredata;
 
-
-        public AzureBlobFileReference(CloudBlob blob, string fileStoreKey)
+        public AzureBlobFileReference(CloudBlob blob, FileStoreData fileStoreData)
         {
             _blob = blob;
-            FileStoreKey = fileStoreKey;
+            _fileStoredata = fileStoreData;
         }
 
         public int ContentLength => (int)_blob.Properties.Length;
         public string FileName => _blob.Uri.Segments[_blob.Uri.Segments.Length - 1];
-        public string FileStoreKey { get; }
+        public string FileStoreKey => _fileStoredata.FileStoreKey;
         public string Path
         {
             get
@@ -38,7 +38,20 @@ namespace AlexCrome.Telligent.Azure.Filestorage
             }
         }
 
-        public string GetDownloadUrl() => _blob.Uri.ToString();
+        public string GetDownloadUrl()
+        {
+            if (_fileStoredata.IsPublic)
+                return _blob.Uri.ToString();
+
+            var policy = new SharedAccessBlobPolicy()
+            {
+                SharedAccessExpiryTime = DateTime.UtcNow.AddHours(2),
+                Permissions = SharedAccessBlobPermissions.Read
+            };
+
+            var accessSignature = _blob.GetSharedAccessSignature(policy);
+            return _blob.Uri + accessSignature;
+        }
 
         public Stream OpenReadStream() => new TracedStream(_blob.OpenRead(), $"[cfs] ReadStream '{FileStoreKey}' '{Path}' '{FileName}'");
 

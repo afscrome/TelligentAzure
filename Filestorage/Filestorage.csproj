@@ -76,6 +76,8 @@
   <ItemGroup>
     <Compile Include="AzureBlobFileReference.cs" />
     <Compile Include="AzureBlobFilestorageProvider.cs" />
+    <Compile Include="BlobRequestProcessor.cs" />
+    <Compile Include="FileStoreData.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
