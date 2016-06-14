@@ -41,7 +41,9 @@ namespace AlexCrome.Telligent.Azure.Filestorage
         public string GetDownloadUrl()
         {
             if (_fileStoredata.IsPublic)
-                return _blob.Uri.ToString();
+            {
+                return string.IsNullOrEmpty(_fileStoredata.CdnUrl) ? _blob.Uri.ToString() : new Uri(new Uri(_fileStoredata.CdnUrl),_blob.Uri.PathAndQuery).ToString();
+            }
 
             var policy = new SharedAccessBlobPolicy()
             {

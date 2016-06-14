@@ -10,8 +10,6 @@ using System.Collections;
 using System.Configuration;
 using System.Net;
 using Telligent.Common.Diagnostics.Tracing;
-using System.Threading.Tasks;
-using System.Web;
 using Telligent.Evolution.Extensibility.Version1;
 using Microsoft.WindowsAzure.Storage.Shared.Protocol;
 
@@ -28,6 +26,10 @@ namespace AlexCrome.Telligent.Azure.Filestorage
         public void Initialize(string fileStoreKey, XmlNode configurationNode)
         {
             _fileStoreData = new FileStoreData(fileStoreKey, IsPublic(fileStoreKey));
+
+            _fileStoreData.CdnUrl = configurationNode.Attributes["cdnUrl"]?.Value;
+            _fileStoreData.CorsOrigin = configurationNode.Attributes["corsOrigin"]?.Value;
+
             _container = CreateContainer();
         }
 
@@ -49,7 +51,19 @@ namespace AlexCrome.Telligent.Azure.Filestorage
             defaultOptions.MaximumExecutionTime = TimeSpan.FromSeconds(3);
             defaultOptions.ServerTimeout = TimeSpan.FromSeconds(1);
 
-            var container = client.GetContainerReference(MakeSafeContainerName(FileStoreKey)); ;
+            var serviceProps = client.GetServiceProperties();
+            serviceProps.Cors = new CorsProperties();
+            serviceProps.Cors.CorsRules.Add(new CorsRule
+            {
+                AllowedMethods = CorsHttpMethods.Get,
+                AllowedHeaders = new[] {"*"},
+                AllowedOrigins = new[] {"*"},
+                ExposedHeaders = new string[0],
+                MaxAgeInSeconds = 3600
+            });
+            client.SetServiceProperties(serviceProps);
+
+            var container = client.GetContainerReference(MakeSafeContainerName(FileStoreKey));
             SecureContainer(container);
             return container;
         }
@@ -102,9 +116,9 @@ namespace AlexCrome.Telligent.Azure.Filestorage
                 }
 
                 var blob = GetBlob(path, fileName);
-                blob.Properties.ContentType = MimeMapping.GetMimeMapping(fileName);
+                blob.Properties.ContentType = MimeTypes.GetMimeTypeByFileName(fileName);
 
-                blob.UploadFromStream(contentStream);
+                blob.UploadFromStream(contentStream, options: new BlobRequestOptions {ServerTimeout = TimeSpan.FromMinutes(5)});
 
                 return new AzureBlobFileReference(blob, _fileStoreData);
             }
