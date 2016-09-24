@@ -7,10 +7,9 @@ using System.Xml;
 using Telligent.Evolution.Extensibility.Storage.Version1;
 using System;
 using System.Collections;
+using System.Configuration;
 using System.Net;
 using Telligent.Common.Diagnostics.Tracing;
-using System.Threading.Tasks;
-using System.Web;
 using Telligent.Evolution.Extensibility.Version1;
 using Microsoft.WindowsAzure.Storage.Shared.Protocol;
 
@@ -18,7 +17,7 @@ namespace AlexCrome.Telligent.Azure.Filestorage
 {
 
     //TODO: IPersistentUrlGeneratingFileStorageProvider, IEventEnabledCentralizedFileStorageProvider, IHttpAsyncRenderableCentralizedFileStorageProvider 
-    public class AzureBlobFilestorageProvider : ICentralizedFileStorageProvider, IHttpAsyncRenderableCentralizedFileStorageProvider//, IPersistentUrlGeneratingFileStorageProvider
+    public class AzureBlobFilestorageProvider : ICentralizedFileStorageProvider//, IHttpAsyncRenderableCentralizedFileStorageProvider, IPersistentUrlGeneratingFileStorageProvider
     {
         private CloudBlobContainer _container;
         private FileStoreData _fileStoreData;
@@ -27,6 +26,10 @@ namespace AlexCrome.Telligent.Azure.Filestorage
         public void Initialize(string fileStoreKey, XmlNode configurationNode)
         {
             _fileStoreData = new FileStoreData(fileStoreKey, IsPublic(fileStoreKey));
+
+            _fileStoreData.CdnUrl = configurationNode.Attributes["cdnUrl"]?.Value;
+            _fileStoreData.CorsOrigin = configurationNode.Attributes["corsOrigin"]?.Value;
+
             _container = CreateContainer();
         }
 
@@ -41,28 +44,26 @@ namespace AlexCrome.Telligent.Azure.Filestorage
         private CloudBlobContainer CreateContainer()
         {
             //TODO: share account & client across provider instances to reuse the buffer pool
-            var account = CloudStorageAccount.DevelopmentStorageAccount;
+            var account = CloudStorageAccount.Parse(ConfigurationManager.ConnectionStrings["AzureFilestorageContainer"].ConnectionString);
             var client = account.CreateCloudBlobClient();
-
-            //TODO: This disables cors for local dev.  Want to get this enabled with the proper host name
-            var serviceProps = client.GetServiceProperties();
-            serviceProps.Cors.CorsRules.Clear();
-            serviceProps.Cors.CorsRules.Add(new CorsRule
-            {
-                AllowedMethods = CorsHttpMethods.Get,
-                AllowedHeaders = new[] {  "if-match", "if-modified-since", "if-none-match", "if-range", "if-unmodified-since" },
-                AllowedOrigins = new[] { "http://prev3.local/" },
-                ExposedHeaders = new string[0],
-                MaxAgeInSeconds = 3600
-            });
-            client.SetServiceProperties(serviceProps);
-
 
             var defaultOptions = client.DefaultRequestOptions;
             defaultOptions.MaximumExecutionTime = TimeSpan.FromSeconds(3);
             defaultOptions.ServerTimeout = TimeSpan.FromSeconds(1);
 
-            var container = client.GetContainerReference(MakeSafeContainerName(FileStoreKey)); ;
+            var serviceProps = client.GetServiceProperties();
+            serviceProps.Cors = new CorsProperties();
+            serviceProps.Cors.CorsRules.Add(new CorsRule
+            {
+                AllowedMethods = CorsHttpMethods.Get,
+                AllowedHeaders = new[] {"*"},
+                AllowedOrigins = new[] {"*"},
+                ExposedHeaders = new string[0],
+                MaxAgeInSeconds = 3600
+            });
+            client.SetServiceProperties(serviceProps);
+
+            var container = client.GetContainerReference(MakeSafeContainerName(FileStoreKey));
             SecureContainer(container);
             return container;
         }
@@ -115,9 +116,9 @@ namespace AlexCrome.Telligent.Azure.Filestorage
                 }
 
                 var blob = GetBlob(path, fileName);
-                blob.Properties.ContentType = MimeMapping.GetMimeMapping(fileName);
+                blob.Properties.ContentType = MimeTypes.GetMimeTypeByFileName(fileName);
 
-                blob.UploadFromStream(contentStream);
+                blob.UploadFromStream(contentStream, options: new BlobRequestOptions {ServerTimeout = TimeSpan.FromMinutes(5)});
 
                 return new AzureBlobFileReference(blob, _fileStoreData);
             }
@@ -224,18 +225,6 @@ namespace AlexCrome.Telligent.Azure.Filestorage
 
         private string ConvertCfsPathToAzurePath(string cfsPath)
             => cfsPath?.Replace('.', '/').Trim('.');
-
-        public string GetPersistentDownloadUrl(ICentralizedFile file)
-        {
-            //TODO: Vary based on security
-            //TODO: Support CDN for public files
-            return file.GetDownloadUrl();
-        }
-
-        public Task HandleHttpRequest(HttpContextBase context, ICentralizedFile file)
-        {
-            throw new NotImplementedException();
-        }
 
         private class NotFoundHandlingEnumerable : IEnumerable<IListBlobItem>
         {

@@ -15,7 +15,12 @@ namespace AlexCrome.Telligent.Azure.Filestorage
         }
 
         public string FileStoreKey { get; }
+
         public bool IsPublic { get; }
+
+        public string CdnUrl { get; set; }
+
+        public string CorsOrigin { get; set; }
     }
 
 
