@@ -71,13 +71,16 @@
     <Reference Include="Telligent.Common, Version=1.0.68.48588, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\TelligentBinaries\Telligent.Common.dll</HintPath>
+      <Private>False</Private>
     </Reference>
     <Reference Include="Telligent.Evolution.Api, Version=9.2.0.1667, Culture=neutral, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\TelligentBinaries\Telligent.Evolution.Api.dll</HintPath>
+      <Private>False</Private>
     </Reference>
     <Reference Include="Telligent.Evolution.Components">
       <HintPath>..\TelligentBinaries\Telligent.Evolution.Components.dll</HintPath>
+      <Private>False</Private>
     </Reference>
   </ItemGroup>
   <ItemGroup>
