@@ -17,34 +17,35 @@ namespace AlexCrome.Telligent.Azure.Filestorage
 {
 
     //TODO: IPersistentUrlGeneratingFileStorageProvider, IEventEnabledCentralizedFileStorageProvider, IHttpAsyncRenderableCentralizedFileStorageProvider 
-    public class AzureBlobFilestorageProvider : ICentralizedFileStorageProvider//, IHttpAsyncRenderableCentralizedFileStorageProvider, IPersistentUrlGeneratingFileStorageProvider
+    public class AzureBlobFilestorageProvider : ICentralizedFileStorageProvider, IEventEnabledCentralizedFileStorageProvider //, IHttpAsyncRenderableCentralizedFileStorageProvider, IPersistentUrlGeneratingFileStorageProvider
     {
         private CloudBlobContainer _container;
         private FileStoreData _fileStoreData;
         public string FileStoreKey => _fileStoreData.FileStoreKey;
 
-        public void Initialize(string fileStoreKey, XmlNode configurationNode)
+		public ICentralizedFileEventExecutor EventExecutor { private get; set; }
+
+		public void Initialize(string fileStoreKey, XmlNode configurationNode)
         {
             _fileStoreData = new FileStoreData(fileStoreKey, IsPublic(fileStoreKey));
 
             _fileStoreData.CdnUrl = configurationNode.Attributes["cdnUrl"]?.Value;
             _fileStoreData.CorsOrigin = configurationNode.Attributes["corsOrigin"]?.Value;
-
-            _container = CreateContainer();
+			_container = CreateContainer();
         }
 
         private bool IsPublic(string fileStoreKey)
         {
             var fileStorePlugin = PluginManager.Get<ICentralizedFileStore>()
                 .Single(x => x.FileStoreKey.Equals(fileStoreKey, StringComparison.OrdinalIgnoreCase));
-
+			
             return !(fileStorePlugin is ISecuredCentralizedFileStore || fileStorePlugin is IGloballySecuredCentralizedFileStore);
         }
 
         private CloudBlobContainer CreateContainer()
         {
-            //TODO: share account & client across provider instances to reuse the buffer pool
-            var account = CloudStorageAccount.Parse(ConfigurationManager.ConnectionStrings["AzureFilestorageContainer"].ConnectionString);
+			//TODO: share account & client across provider instances to reuse the buffer pool
+			var account = CloudStorageAccount.Parse(ConfigurationManager.ConnectionStrings["AzureFilestorageContainer"].ConnectionString);
             var client = account.CreateCloudBlobClient();
 
             var defaultOptions = client.DefaultRequestOptions;
@@ -118,11 +119,28 @@ namespace AlexCrome.Telligent.Azure.Filestorage
                 var blob = GetBlob(path, fileName);
                 blob.Properties.ContentType = MimeTypes.GetMimeTypeByFileName(fileName);
 
-                blob.UploadFromStream(contentStream, options: new BlobRequestOptions {ServerTimeout = TimeSpan.FromMinutes(5)});
+				bool alreadyExists = blob.Exists();
+				if (alreadyExists)
+					EventExecutor.OnBeforeUpdate(ConvertBlobToCentralizedFile(blob));
+				else
+					EventExecutor.OnBeforeCreate(FileStoreKey, path, fileName);
 
-                return new AzureBlobFileReference(blob, _fileStoreData);
+
+				blob.UploadFromStream(contentStream, options: new BlobRequestOptions {ServerTimeout = TimeSpan.FromMinutes(5)});
+
+                var file = ConvertBlobToCentralizedFile(blob);
+
+				if (alreadyExists)
+					EventExecutor.OnAfterUpdate(file);
+				else
+					EventExecutor.OnAfterCreate(file);
+
+				return file;
             }
         }
+
+		private ICentralizedFile ConvertBlobToCentralizedFile(CloudBlob blob)
+			=> new AzureBlobFileReference(blob, _fileStoreData);
 
         public void Delete() => Delete(string.Empty);
 
@@ -139,12 +157,16 @@ namespace AlexCrome.Telligent.Azure.Filestorage
 
         public void Delete(string path, string fileName)
         {
+			EventExecutor.OnBeforeDelete(FileStoreKey, path, fileName);
             using (new TracePoint($"[cfs] Delete '{FileStoreKey}' '{path}' '{fileName}'"))
             {
                 var blob = GetBlob(path, fileName);
-                blob.DeleteIfExists();
-            }
-        }
+				if (blob.DeleteIfExists())
+				{
+					EventExecutor.OnAfterDelete(FileStoreKey, path, fileName);
+				}
+			}
+		}
 
         public ICentralizedFile GetFile(string path, string fileName)
         {
@@ -153,7 +175,7 @@ namespace AlexCrome.Telligent.Azure.Filestorage
                 var blob = GetBlob(path, fileName);
 
                 if (blob.Exists())
-                    return new AzureBlobFileReference(blob, _fileStoreData);
+                    return ConvertBlobToCentralizedFile(blob);
 
                 return null;
             }
@@ -168,7 +190,7 @@ namespace AlexCrome.Telligent.Azure.Filestorage
             {
                 return ListChildren(path, searchOption)
                 .OfType<CloudBlockBlob>()
-                .Select(x => new AzureBlobFileReference(x, _fileStoreData));
+                .Select(ConvertBlobToCentralizedFile);
             }
         }
 
